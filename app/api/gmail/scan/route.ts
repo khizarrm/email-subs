@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   console.log("📧 /api/gmail/scan Starting...")
   console.time("/api/gmail/scan duration")
 
+  
   console.log("Getting token...")
   const token = await getToken({ req })
 
@@ -52,7 +53,7 @@ console.log("📧 Fetching Gmail messages...")
     const res = await gmail.users.messages.list({
       userId: "me",
       q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
-      maxResults: 10,
+      maxResults: 50,
     })
     messages = res.data.messages || []
   } catch (err) {
@@ -60,8 +61,25 @@ console.log("📧 Fetching Gmail messages...")
     return NextResponse.json({ error: "Failed to fetch Gmail messages" }, { status: 500 })
   }
 
+  
+
   console.log("📧 Found messages:", messages.length)
   const results = []
+
+  const debugInfo = {
+    totalFetched: messages.length,
+    processed: results.length,
+    user: {
+      id: userId,
+      email: token.email,
+      authProviderId: token.sub,
+    },
+    execution: {
+      startedAt: new Date().toISOString(),
+    },
+    errors: [],
+  }
+  
 
   console.log("Extracting body text...")
   function extractBodyText(payload: any): string {
@@ -99,7 +117,8 @@ console.log("📧 Fetching Gmail messages...")
   }
 
   console.log("📧 Parsing messages...")
-  for (const msg of messages) {
+  const maxToProcess = 10
+  for (const msg of messages.slice(0, maxToProcess))  {
     try {
       const gmail = google.gmail({ version: "v1", auth: oauth2Client })
       const msgData = await gmail.users.messages.get({
@@ -172,6 +191,7 @@ console.log("📧 Fetching Gmail messages...")
         const clean = jsonStr.replace(/```json|```/g, "").trim()
         parsed = JSON.parse(clean)
       } catch (err) {
+        
         console.error("❌ OpenAI parsing failed:", err)
         continue
       }
@@ -222,10 +242,11 @@ console.log("📧 Fetching Gmail messages...")
   }
 
   console.timeEnd("/api/gmail/scan duration")
+  
 
   if (results.length === 0) {
     return NextResponse.json({ message: "No records found", messages: [] }, { status: 200 })
   }
 
-  return NextResponse.json({ messages: results }, { status: 200 })
+  return NextResponse.json({ messages: results, summary: debugInfo}, { status: 200 })
 }
