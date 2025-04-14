@@ -1,18 +1,18 @@
-// app/api/auth/error/page.tsx
 "use client"
+
 export const dynamic = "force-dynamic";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
-import { useSearchParams } from "next/navigation"
-
-export default function AuthErrorPage() {
-  const searchParams = useSearchParams()
-  const reason = searchParams.get("reason")
+function ErrorContent() {
+  const searchParams = useSearchParams();
+  const reason = searchParams.get("reason");
 
   const message = {
     gmail_access_required: "Please allow Gmail access to continue using SubTracker.",
     default: "Something went wrong during sign-in. Please try again.",
-  }
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-white text-black">
@@ -27,5 +27,13 @@ export default function AuthErrorPage() {
         Try signing in again
       </a>
     </div>
-  )
+  );
+}
+
+export default function AuthErrorPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ErrorContent />
+    </Suspense>
+  );
 }
