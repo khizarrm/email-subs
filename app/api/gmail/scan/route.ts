@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient"
 export async function GET(req: NextRequest) {
   console.log("📧 /api/gmail/scan Starting...")
   console.time("/api/gmail/scan duration")
+  console.log("🍪 Cookies:", req.headers.get("cookie"))
 
   
   console.log("Getting token...")

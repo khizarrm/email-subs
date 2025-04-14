@@ -30,12 +30,14 @@ export const authOptions: NextAuthOptions = {
       return true
     },
 
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
       // Initial sign in
       if (account) {
         token.accessToken = account.access_token
         token.refreshToken = account.refresh_token
+        token.email = profile?.email
         token.expiresAt = account.expires_at
+        token.sub = account.providerAccountId // 👈 Google user ID
       }
 
       // Return previous token if the access token has not expired yet
@@ -52,6 +54,7 @@ export const authOptions: NextAuthOptions = {
         user: {
           ...session.user,
           id: token.sub,
+          email: token.email,
         },
         accessToken: token.accessToken,
         refreshToken: token.refreshToken,
