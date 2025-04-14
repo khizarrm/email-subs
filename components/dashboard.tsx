@@ -92,6 +92,11 @@ export function Dashboard() {
         )}
       </div>
 
+      {/* Added disclaimer message */}
+      <div className="text-amber-600 text-sm italic border border-amber-300 bg-amber-50 p-3 rounded-md">
+        Data here isn't 100% accurate. You might see some discrepancies. Currently working on that, will be fixed soon.
+      </div>
+
       {noRecords && (
         <p className="text-red-600 mt-6 text-center font-medium">
           🚫 No records found in your Gmail from the past 30 days.
