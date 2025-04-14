@@ -31,15 +31,18 @@ export default function Home() {
             <details className="mt-3 cursor-pointer">
               <summary className="font-medium text-gray-700 hover:text-gray-900">How does it work?</summary>
               <div className="mt-2 pl-2 border-l-2 border-gray-200">
-              <p>
-                When a user logs in with Google, they grant the app read-only access to their Gmail inbox. Once logged in, the app scans their recent emails using the Gmail API by calling the <code>/api/gmail/scan</code> endpoint. Each email body is then sent to OpenAI to extract details like the vendor name, billing amount, and currency. The parsed data is saved in Supabase under the <code>subscriptions</code> and <code>emails</code> tables. On the frontend, users are shown a clean summary of their recurring charges. Every 30 days, a summary email is automatically sent to them with their subscription activity.
-                </p>
+                <ul className="list-disc pl-4 space-y-2">
+                  <li>User grants read-only access to Gmail</li>
+                  <li>App reads emails with keywords: subscription, payment, or receipt</li>
+                  <li>Data sent to OpenAI API for parsing</li>
+                  <li>If subscribed, a script runs every 30 days to send you an updated summary</li>
+                </ul>
               </div>
             </details>
             
             <div className="mt-4 text-center">
               <a 
-                href="https://github.com/khizarrm/email-subs" 
+                href="https://github.com/yourusername/subtrack" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="inline-flex items-center space-x-1 text-gray-600 hover:text-black transition-colors"
