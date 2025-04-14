@@ -18,6 +18,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
 
+  if (!token?.refreshToken) {
+    return NextResponse.json({ error: "Missing refresh token" }, { status: 401 })
+  }
+
   console.log("🧠 Authenticated token.sub (user id):", token.sub)
   console.log("📧 Authenticated token.email:", token.email)
 
