@@ -197,5 +197,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  if (results.length === 0) {
+    return NextResponse.json({ message: "No records found", messages: [] }, { status: 200 })
+  }
+
   return NextResponse.json({ messages: results }, { status: 200 })
 }
