@@ -18,9 +18,22 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ account }) {
+      const scopes = account?.scope?.split(" ") || []
+      const hasGmailAccess = scopes.includes("https://www.googleapis.com/auth/gmail.readonly")
+  
+      if (!hasGmailAccess) {
+        console.warn("User denied Gmail access.")
+        return '/auth/error' // redirects to error page
+      }
+  
+      return true
+    },
+
     async jwt({ token, account }) {
       // Initial sign in
       if (account) {
+
         token.accessToken = account.access_token
         token.refreshToken = account.refresh_token
         token.expiresAt = account.expires_at
@@ -35,7 +48,6 @@ export const authOptions: NextAuthOptions = {
       return token
     },
     async session({ session, token }) {
-      // Send properties to the client
       session.accessToken = token.accessToken
       session.refreshToken = token.refreshToken
       session.user.id = token.sub
