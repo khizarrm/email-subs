@@ -1,74 +1,77 @@
-# Next.js 14 with Google OAuth and Gmail Access
+# 📬 SubTracker – Smart Email-Based Subscription Tracker
 
-This project demonstrates how to implement Google OAuth authentication with Gmail read-only access in a Next.js 14 application using the App Router.
+SubTracker helps users stay on top of recurring subscriptions by scanning their Gmail inbox for billing emails and generating clean, monthly summaries. It's privacy-respecting, user-friendly, and fully automated.
 
-## Features
+## 🚀 Features
 
-- Next.js 14 with App Router
-- Tailwind CSS for styling
-- NextAuth.js for authentication
-- Google OAuth with Gmail read-only access
-- JWT-based sessions (no database required)
-- TypeScript support
+- 🔐 **Google Login** (OAuth 2.0) with read-only Gmail access
+- 📥 **Automated Email Scanning** using Gmail API + OpenAI
+- 🧠 **AI-Powered Extraction** of vendor, amount, and currency from emails
+- 💾 **Supabase Backend** to store users, subscriptions, and email metadata
+- 📊 **Beautiful Monthly Summaries** with detailed breakdowns
+- 📩 **Email Reports** sent automatically every 30 days
+- ✅ **Privacy-First**: We never store email content, only structured metadata
 
-## Getting Started
+---
 
-### Prerequisites
+## 🛠️ Tech Stack
 
-1. Create a Google Cloud Project and configure OAuth credentials:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project
-   - Navigate to "APIs & Services" > "Credentials"
-   - Create an OAuth client ID (Web application)
-   - Add authorized redirect URIs:
-     - For development: `http://localhost:3000/api/auth/callback/google`
-     - For production: `https://your-domain.com/api/auth/callback/google`
-   - Enable the Gmail API in "APIs & Services" > "Library"
+- **Frontend**: Next.js (App Router), TailwindCSS, Shadcn/UI
+- **Auth**: NextAuth.js + Google OAuth
+- **Backend**: Supabase (PostgreSQL, Row Level Security)
+- **AI**: OpenAI API (GPT-4) for parsing billing info
+- **Email**: Gmail API (read-only access)
 
-2. Note your Client ID and Client Secret for the next step
+---
 
-### Environment Setup
+## 📦 Database Schema (Supabase)
 
-Create a `.env.local` file in the root of your project with the following variables:
+### `users`
+| Column       | Type     | Description                    |
+|--------------|----------|--------------------------------|
+| id           | UUID     | Primary key (Google `sub`)     |
+| email        | Text     | User email                     |
+| created_at   | Timestamp| When user was created          |
 
-\`\`\`
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-NEXTAUTH_SECRET=your_random_secret_key
-NEXTAUTH_URL=http://localhost:3000
-\`\`\`
+### `profiles`
+| Column       | Type     | Description               |
+|--------------|----------|---------------------------|
+| id           | UUID     | FK to `users.id`          |
+| full_name    | Text     | User name                 |
+| phone        | Text     | Optional phone number     |
+| address      | Text     | Optional mailing address  |
 
-For production, set `NEXTAUTH_URL` to your deployment URL.
+### `subscriptions`
+| Column      | Type     | Description                         |
+|-------------|----------|-------------------------------------|
+| id          | UUID     | Primary key                         |
+| user_id     | UUID     | FK to `users.id`                    |
+| vendor      | Text     | Extracted vendor name               |
+| amount      | Numeric  | Subscription amount                 |
+| currency    | Text     | USD, CAD, etc.                      |
+| interval    | Text     | Monthly / Yearly / Unknown          |
+| last_seen   | Date     | Date of last billing email          |
 
-### Installation
+### `emails`
+| Column      | Type     | Description                      |
+|-------------|----------|----------------------------------|
+| id          | UUID     | Primary key                      |
+| user_id     | UUID     | FK to `users.id`                 |
+| subscription_id | UUID | FK to `subscriptions.id`         |
+| subject     | Text     | Email subject                    |
+| date        | Date     | Date of the email                |
+| extracted_text | Text | Summary extracted via OpenAI     |
 
-\`\`\`bash
-npm install
-# or
-yarn
-# or
-pnpm install
-\`\`\`
+---
 
-### Development
+## ✨ How It Works
 
-\`\`\`bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-\`\`\`
+1. **User Logs In** → Google login prompts Gmail read-only permission
+2. **Gmail Sync** → `/api/gmail/scan` fetches recent emails via Gmail API
+3. **OpenAI Parsing** → Body of each email is sent to OpenAI for vendor, amount, currency
+4. **Supabase Sync** → Parsed data is saved into `subscriptions` and `emails` tables
+5. **Frontend Summary** → User sees all their recurring charges in a clean UI
+6. **Auto Reports** → Monthly summary email sent to the user
 
-Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+---
 
-## How It Works
-
-1. The application uses NextAuth.js to handle Google OAuth authentication
-2. When a user signs in, the app requests permission to access their Gmail data (read-only)
-3. The access token and refresh token are stored in a JWT
-4. The home page displays the user's email and access token when signed in
-
-## License
-
-MIT
