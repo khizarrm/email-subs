@@ -52,7 +52,7 @@ console.log("📧 Fetching Gmail messages...")
     const res = await gmail.users.messages.list({
       userId: "me",
       q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
-      maxResults: 50,
+      maxResults: 10,
     })
     messages = res.data.messages || []
   } catch (err) {
