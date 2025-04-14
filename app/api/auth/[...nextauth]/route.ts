@@ -47,10 +47,15 @@ export const authOptions: NextAuthOptions = {
       return token
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken
-      session.refreshToken = token.refreshToken
-      session.user.id = token.sub
-      return session
+      return {
+        ...session,
+        user: {
+          ...session.user,
+          id: token.sub,
+        },
+        accessToken: token.accessToken,
+        refreshToken: token.refreshToken,
+      }
     },
   },
   pages: {

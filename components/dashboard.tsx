@@ -7,6 +7,10 @@ import { signOut } from "next-auth/react"
 
 export function Dashboard() {
   const { data: session } = useSession()
+  if (!session) {
+    console.error("bro has no session") // or loading spinner
+  }
+  
   const [subscribed, setSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [purchases, setPurchases] = useState<any[] | null>(null)
@@ -125,8 +129,18 @@ export function Dashboard() {
       )}
 
       <div className="w-full">
-        <Button variant="outline" onClick={() => signOut()} className="w-full">
-          Sign out
+      <Button
+        variant="outline"
+        onClick={async () => {
+            setPurchases(null) // 🧼 Clear session state
+            setExpanded(new Set())
+            setNoRecords(false)
+            setFeedback("")
+            await signOut()
+        }}
+        className="w-full"
+        >
+        Sign out
         </Button>
       </div>
     </div>
