@@ -40,14 +40,22 @@ export async function GET(req: NextRequest) {
 
   const userId = userRecord.id
 
+
+
   console.log("Calling oauth2 client...")
-  const oauth2Client = new google.auth.OAuth2()
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  )
   oauth2Client.setCredentials({
     access_token: token.accessToken,
     refresh_token: token.refreshToken,
   })
 
-console.log("📧 Fetching Gmail messages...")
+
+  console.log("Refresh token exists:", !!token.refreshToken)
+  console.log("📧 Fetching Gmail messages...")
   let messages = []
   try {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client })
