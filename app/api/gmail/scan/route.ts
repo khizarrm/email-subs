@@ -44,8 +44,6 @@ export async function GET(req: NextRequest) {
 
   const userId = userRecord.id
 
-
-
   console.log("Calling oauth2 client...")
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -57,7 +55,6 @@ export async function GET(req: NextRequest) {
     refresh_token: token.refreshToken,
   })
 
-
   console.log("Refresh token exists:", !!token.refreshToken)
   console.log("📧 Fetching Gmail messages...")
   let messages = []
@@ -66,15 +63,13 @@ export async function GET(req: NextRequest) {
     const res = await gmail.users.messages.list({
       userId: "me",
       q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
-      maxResults: 50,
+      maxResults: 30,
     })
     messages = res.data.messages || []
   } catch (err) {
     console.error("📨 Gmail list error:", err)
     return NextResponse.json({ error: "Failed to fetch Gmail messages" }, { status: 500 })
   }
-
-  
 
   console.log("📧 Found messages:", messages.length)
   const results = []
@@ -130,7 +125,7 @@ export async function GET(req: NextRequest) {
   }
 
   console.log("📧 Parsing messages...")
-  const maxToProcess = 10
+  const maxToProcess = 5
   for (const msg of messages.slice(0, maxToProcess))  {
     try {
       const gmail = google.gmail({ version: "v1", auth: oauth2Client })
@@ -254,12 +249,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  console.log("After time end")
+
   console.timeEnd("/api/gmail/scan duration")
   
 
+  console.log("Before time end")
   if (results.length === 0) {
     return NextResponse.json({ message: "No records found", messages: [] }, { status: 200 })
   }
+
+  console.log("Returning stuff now")
 
   return NextResponse.json({ messages: results, summary: debugInfo}, { status: 200 })
 }
