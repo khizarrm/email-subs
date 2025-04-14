@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.pnpm/
+.package-lock.json
+yarn.lock
+
+# Build output
+.next/
+out/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Supabase (if you're using the CLI)
+.supabase/
+
+# Misc
+*.log
+*.tsbuildinfo
+
+# Optional: local dev database dumps
+*.dump
+*.sql

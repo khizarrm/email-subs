@@ -1,10 +1,24 @@
 "use client"
 
 import { useSession, signOut } from "next-auth/react"
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 
 export function UserProfile() {
   const { data: session } = useSession()
+
+  // 🔁 Call backend to sync user on first load
+  useEffect(() => {
+    const syncUser = async () => {
+      if (session?.user?.email) {
+        await fetch("/api/user/sync", {
+          method: "POST",
+        })
+      }
+    }
+
+    syncUser()
+  }, [session])
 
   return (
     <div className="space-y-6">
@@ -15,15 +29,6 @@ export function UserProfile() {
         <Button onClick={() => signOut()} variant="outline" className="w-full">
           Sign out
         </Button>
-      </div>
-
-      <div className="space-y-2">
-        <h2 className="text-lg font-semibold">Access Token:</h2>
-        <div className="bg-gray-100 p-4 rounded-md overflow-x-auto">
-          <pre className="text-xs break-all whitespace-pre-wrap">
-            {(session as any)?.accessToken || "No access token available"}
-          </pre>
-        </div>
       </div>
     </div>
   )
