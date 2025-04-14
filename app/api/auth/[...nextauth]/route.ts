@@ -38,7 +38,7 @@ export const authOptions: NextAuthOptions = {
       // Send properties to the client
       session.accessToken = token.accessToken
       session.refreshToken = token.refreshToken
-
+      session.user.id = token.sub
       return session
     },
   },
