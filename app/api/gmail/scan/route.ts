@@ -6,6 +6,8 @@ import { openai } from "@/lib/openaiClient"
 import { supabase } from "@/lib/supabaseClient"
 
 export async function GET(req: NextRequest) {
+  console.time("/api/gmail/scan duration")
+
   const token = await getToken({ req })
 
   if (!token?.accessToken || !token.sub) {
@@ -18,9 +20,14 @@ export async function GET(req: NextRequest) {
     .eq("auth_provider_id", token.sub)
     .maybeSingle()
 
-  if (userErr || !userRecord) {
+  if (userErr) {
+    console.error("❌ Supabase user query error:", userErr)
+    return NextResponse.json({ error: "User fetch failed" }, { status: 500 })
+  }
+
+  if (!userRecord) {
     console.error("❌ Could not find user with auth_provider_id", token.sub)
-    return
+    return NextResponse.json({ error: "User not found" }, { status: 404 })
   }
 
   const userId = userRecord.id
@@ -31,14 +38,20 @@ export async function GET(req: NextRequest) {
     refresh_token: token.refreshToken,
   })
 
-  const gmail = google.gmail({ version: "v1", auth: oauth2Client })
-  const res = await gmail.users.messages.list({
-    userId: "me",
-    q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
-    maxResults: 50,
-  })
+  let messages = []
+  try {
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client })
+    const res = await gmail.users.messages.list({
+      userId: "me",
+      q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
+      maxResults: 50,
+    })
+    messages = res.data.messages || []
+  } catch (err) {
+    console.error("📨 Gmail list error:", err)
+    return NextResponse.json({ error: "Failed to fetch Gmail messages" }, { status: 500 })
+  }
 
-  const messages = res.data.messages || []
   const results = []
 
   function extractBodyText(payload: any): string {
@@ -49,38 +62,35 @@ export async function GET(req: NextRequest) {
           const decoded = Buffer.from(data, "base64").toString("utf8")
           const dom = new JSDOM(decoded)
           const textContent = dom.window.document.body.textContent || ""
-  
-          // ⬇️ Grab all table content as raw strings to avoid flattening losses
           const tdValues = Array.from(dom.window.document.querySelectorAll("td, th, p"))
             .map(el => el.textContent?.trim())
             .filter(Boolean)
             .join(" | ")
-  
           return `${textContent}\n\nExtra: ${tdValues}`
         }
       }
-  
+
       if (part.mimeType === "text/plain") {
         const data = part.body?.data
         return data ? Buffer.from(data, "base64").toString("utf8") : ""
       }
-  
+
       if (Array.isArray(part.parts)) {
         for (const child of part.parts) {
           const found = findPart(child)
           if (found) return found
         }
       }
-  
+
       return null
     }
-  
+
     return findPart(payload) || ""
   }
-  
 
   for (const msg of messages) {
     try {
+      const gmail = google.gmail({ version: "v1", auth: oauth2Client })
       const msgData = await gmail.users.messages.get({
         userId: "me",
         id: msg.id!,
@@ -92,16 +102,14 @@ export async function GET(req: NextRequest) {
       const from = headers.find(h => h.name === "From")?.value || ""
       const date = headers.find(h => h.name === "Date")?.value || ""
       const bodyText = extractBodyText(msgData.data.payload)
-      const currencyMatch = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
 
+      const currencyMatch = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
       const isReceipt = subject.toLowerCase().includes("receipt")
       if (!isReceipt && !currencyMatch) {
         console.log("🛑 Skipping due to no currency match:", subject)
         continue
       }
-      
 
-      // 🧠 Basic spam/scam detection: ignore emails with "check" or "deposit" and no vendor domain
       const lowerBody = bodyText.toLowerCase()
       if (lowerBody.includes("check") && lowerBody.includes("deposit")) {
         console.log("⚠️ Skipping email likely about a check, not a charge:", subject)
@@ -138,18 +146,24 @@ export async function GET(req: NextRequest) {
         """
       `
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: "You are a billing email parser." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-      })
+      let parsed: any = {}
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "You are a billing email parser." },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.2,
+        })
 
-      const jsonStr = completion.choices[0].message.content || "{}"
-      const clean = jsonStr.replace(/```json|```/g, "").trim()
-      const parsed = JSON.parse(clean)
+        const jsonStr = completion.choices[0].message.content || "{}"
+        const clean = jsonStr.replace(/```json|```/g, "").trim()
+        parsed = JSON.parse(clean)
+      } catch (err) {
+        console.error("❌ OpenAI parsing failed:", err)
+        continue
+      }
 
       let fallbackAmount = parsed.amount
       let fallbackCurrency = parsed.currency
@@ -165,7 +179,6 @@ export async function GET(req: NextRequest) {
       const finalAmount = fallbackAmount ?? null
       const finalCurrency = fallbackCurrency ?? null
 
-      // 👀 Only save if both amount and currency are valid
       if (finalAmount !== null && finalCurrency !== null) {
         results.push({
           subject,
@@ -196,6 +209,8 @@ export async function GET(req: NextRequest) {
       results.push({ error: "Failed to parse", id: msg.id })
     }
   }
+
+  console.timeEnd("/api/gmail/scan duration")
 
   if (results.length === 0) {
     return NextResponse.json({ message: "No records found", messages: [] }, { status: 200 })
