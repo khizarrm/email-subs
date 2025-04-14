@@ -23,13 +23,20 @@ export function Dashboard() {
   }
 
   const handleScan = async () => {
+    console.log("Handling scan...")
     setLoading(true)
     setFeedback("")
     setNoRecords(false)
 
-    const res = await fetch("/api/gmail/scan")
+    console.log("Calling /api/gmail/scan")
+    const res = await fetch("/api/gmail/scan", {
+        method: "GET",
+        credentials: "include",
+    })
+    console.log("Recieived response:", res)
     const data = await res.json()
 
+    console.log("Checking records...")
     if (data.message === "No records found") {
       setPurchases([])
       setNoRecords(true)

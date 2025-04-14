@@ -5,7 +5,7 @@ import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 
 export function UserProfile() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
 
   // 🔁 Call backend to sync user on first load
   useEffect(() => {
@@ -19,6 +19,16 @@ export function UserProfile() {
 
     syncUser()
   }, [session])
+
+  if (status === "loading") {
+    return <div className="text-center p-24">Loading...</div>
+  }
+
+  useEffect(() => {
+    console.log("Session status:", status)
+    console.log("Session data:", session)
+  }, [session, status])
+  
 
   return (
     <div className="space-y-6">

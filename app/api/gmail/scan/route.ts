@@ -6,14 +6,20 @@ import { openai } from "@/lib/openaiClient"
 import { supabase } from "@/lib/supabaseClient"
 
 export async function GET(req: NextRequest) {
+  console.log("📧 /api/gmail/scan Starting...")
   console.time("/api/gmail/scan duration")
 
+  console.log("Getting token...")
   const token = await getToken({ req })
 
   if (!token?.accessToken || !token.sub) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
   }
 
+  console.log("🧠 Authenticated token.sub (user id):", token.sub)
+  console.log("📧 Authenticated token.email:", token.email)
+
+  console.log("Getting user token...")
   const { data: userRecord, error: userErr } = await supabase
     .from("users")
     .select("id")
@@ -32,12 +38,14 @@ export async function GET(req: NextRequest) {
 
   const userId = userRecord.id
 
+  console.log("Calling oauth2 client...")
   const oauth2Client = new google.auth.OAuth2()
   oauth2Client.setCredentials({
     access_token: token.accessToken,
     refresh_token: token.refreshToken,
   })
 
+console.log("📧 Fetching Gmail messages...")
   let messages = []
   try {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client })
@@ -52,8 +60,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch Gmail messages" }, { status: 500 })
   }
 
+  console.log("📧 Found messages:", messages.length)
   const results = []
 
+  console.log("Extracting body text...")
   function extractBodyText(payload: any): string {
     function findPart(part: any): string | null {
       if (part.mimeType === "text/html") {
@@ -88,6 +98,7 @@ export async function GET(req: NextRequest) {
     return findPart(payload) || ""
   }
 
+  console.log("📧 Parsing messages...")
   for (const msg of messages) {
     try {
       const gmail = google.gmail({ version: "v1", auth: oauth2Client })
@@ -96,7 +107,6 @@ export async function GET(req: NextRequest) {
         id: msg.id!,
         format: "full",
       })
-
       const headers = msgData.data.payload?.headers || []
       const subject = headers.find(h => h.name === "Subject")?.value || ""
       const from = headers.find(h => h.name === "From")?.value || ""
@@ -116,6 +126,7 @@ export async function GET(req: NextRequest) {
         continue
       }
 
+      console.log("📧 Parsing email with OpenAI...")
       const prompt = `
         You are a billing email parser. Your job is to extract billing details **only if the user is being charged or billed**.
 
