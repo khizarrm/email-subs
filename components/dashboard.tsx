@@ -9,7 +9,6 @@ export function Dashboard() {
   const { data: session } = useSession()
 
   console.log("Logged in as:", session?.user?.email)
-  console.log("User ID (Google sub):", session?.user?.id)
   
   if (!session) {
     console.error("bro has no session") // or loading spinner
@@ -31,7 +30,6 @@ export function Dashboard() {
   }
 
   const handleScan = async () => {
-    console.log("Frontend session email:", session?.user?.email)
     console.log("Handling scan...")
     setLoading(true)
     setFeedback("")
