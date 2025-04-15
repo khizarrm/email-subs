@@ -6,7 +6,6 @@ import { openai } from "@/lib/openaiClient"
 import { supabase } from "@/lib/supabaseClient"
 
 export async function GET(req: NextRequest) {
-  console.log("📧 /api/gmail/scan Starting...")
   console.time("/api/gmail/scan duration")
   console.log("🍪 Cookies:", req.headers.get("cookie"))
 
@@ -50,6 +49,7 @@ export async function GET(req: NextRequest) {
     process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI
   )
+
   oauth2Client.setCredentials({
     access_token: token.accessToken,
     refresh_token: token.refreshToken,
@@ -57,22 +57,24 @@ export async function GET(req: NextRequest) {
 
   console.log("Refresh token exists:", !!token.refreshToken)
   console.log("📧 Fetching Gmail messages...")
+  console.time("⏱️ Gmail fetch duration")
   let messages = []
   try {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client })
     const res = await gmail.users.messages.list({
       userId: "me",
-      q: 'newer_than:60d subject:(receipt OR subscription OR payment)',
-      maxResults: 30,
+      q: 'newer_than:60d subject:(receipt OR subscription OR payment) -from:me',
+      maxResults: 100,
     })
     messages = res.data.messages || []
   } catch (err) {
     console.error("📨 Gmail list error:", err)
     return NextResponse.json({ error: "Failed to fetch Gmail messages" }, { status: 500 })
   }
+  console.timeEnd("⏱️ Gmail fetch duration")
 
   console.log("📧 Found messages:", messages.length)
-  const results = []
+  const results : any[] = []
 
   const debugInfo = {
     totalFetched: messages.length,
@@ -124,9 +126,7 @@ export async function GET(req: NextRequest) {
     return findPart(payload) || ""
   }
 
-  console.log("📧 Parsing messages...")
-  const maxToProcess = 5
-  for (const msg of messages.slice(0, maxToProcess))  {
+  async function processOneMessage(msg: any, oauth2Client: any, userId: string, results: any[], userEmail: string) {
     try {
       const gmail = google.gmail({ version: "v1", auth: oauth2Client })
       const msgData = await gmail.users.messages.get({
@@ -134,56 +134,68 @@ export async function GET(req: NextRequest) {
         id: msg.id!,
         format: "full",
       })
+  
       const headers = msgData.data.payload?.headers || []
       const subject = headers.find(h => h.name === "Subject")?.value || ""
       const from = headers.find(h => h.name === "From")?.value || ""
       const date = headers.find(h => h.name === "Date")?.value || ""
-      const bodyText = extractBodyText(msgData.data.payload)
 
+
+      if (from.includes(userEmail)) {
+        console.log("📤 Skipping sent email from self:", subject)
+        return
+      } //Skip it if its a user email 
+    
+    
+      const bodyText = extractBodyText(msgData.data.payload)
+  
       const currencyMatch = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
       const isReceipt = subject.toLowerCase().includes("receipt")
       if (!isReceipt && !currencyMatch) {
         console.log("🛑 Skipping due to no currency match:", subject)
-        continue
+        return
       }
-
+  
       const lowerBody = bodyText.toLowerCase()
       if (lowerBody.includes("check") && lowerBody.includes("deposit")) {
         console.log("⚠️ Skipping email likely about a check, not a charge:", subject)
-        continue
+        return
       }
-
+  
       console.log("📧 Parsing email with OpenAI...")
       const prompt = `
-        You are a billing email parser. Your job is to extract billing details **only if the user is being charged or billed**.
-
-        You MUST NOT extract data if the email is:
-        - about a check being sent TO the user
-        - a refund or reimbursement
-        - just a notification or marketing email
-        - a receipt without an amount charged
-
-        Only extract the data if the amount is associated with a currency (like $ or USD or CAD or dollars).
-
-        Your response must be a strict JSON object like this:
+        You are a billing email parser. Your job is to extract billing details **only if the user is being charged for a purchase or subscription**.
+        
+        You MUST NOT extract data in the following cases:
+        - The email is about **incoming funds** (e.g. someone sent the user money, a check is in the mail, or a deposit is being made).
+        - It’s a **refund**, **reimbursement**, or **cancellation confirmation**.
+        - It’s a **marketing email**, a **reminder**, or a **generic receipt** with no amount charged.
+        - It mentions a **pending**, **failed**, or **scheduled** payment, but no actual charge occurred yet.
+        - It has billing or payment keywords (like "receipt", "invoice", or "payment") but does **not show a currency and amount actually paid by the user**.
+        
+        Only extract the data if:
+        - The user **paid a specific amount** (like $4.99, USD 6.99, or 8.99 CAD)
+        - There is **evidence the user was charged**, not just notified.
+        
+        Your response must be a strict JSON object:
         {
-        "vendor_name": string | null,
-        "amount": number | null,
-        "currency": string | null,
-        "billing_interval": "monthly" | "yearly" | "weekly" | "one-time" | null,
-        "is_subscription": boolean
+          "vendor_name": string | null,
+          "amount": number | null,
+          "currency": string | null,
+          "billing_interval": "monthly" | "yearly" | "weekly" | "one-time" | null,
+          "is_subscription": boolean
         }
-
-        Given the following email metadata and body, extract structured data **only if there was a real payment charged to the user**:
-
+        
+        Given the following email metadata and body, extract structured data ONLY IF the user has been clearly charged:
+        
         Subject: "${subject}"
         From: "${from}"
         Body:
         """
         ${bodyText.slice(0, 3000)}
         """
-      `
-
+        ` 
+  
       let parsed: any = {}
       try {
         const completion = await openai.chat.completions.create({
@@ -194,19 +206,18 @@ export async function GET(req: NextRequest) {
           ],
           temperature: 0.2,
         })
-
+  
         const jsonStr = completion.choices[0].message.content || "{}"
         const clean = jsonStr.replace(/```json|```/g, "").trim()
         parsed = JSON.parse(clean)
       } catch (err) {
-        
         console.error("❌ OpenAI parsing failed:", err)
-        continue
+        return
       }
-
+  
       let fallbackAmount = parsed.amount
       let fallbackCurrency = parsed.currency
-
+  
       if (fallbackAmount == null || fallbackCurrency == null) {
         const match = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
         if (match) {
@@ -214,10 +225,10 @@ export async function GET(req: NextRequest) {
           fallbackCurrency = match[0].includes("USD") ? "USD" : match[0].includes("CAD") ? "CAD" : "$"
         }
       }
-
+  
       const finalAmount = fallbackAmount ?? null
       const finalCurrency = fallbackCurrency ?? null
-
+  
       if (finalAmount !== null && finalCurrency !== null) {
         results.push({
           subject,
@@ -229,7 +240,7 @@ export async function GET(req: NextRequest) {
           billing_interval: parsed.billing_interval,
           is_subscription: parsed.is_subscription,
         })
-
+  
         const { error: insertError } = await supabase.from("subscriptions").insert({
           user_id: userId,
           service_name: parsed.vendor_name || "Unknown",
@@ -238,7 +249,7 @@ export async function GET(req: NextRequest) {
           billing_interval: parsed.billing_interval || "one-time",
           last_seen_email_id: msg.id!,
         })
-
+  
         if (insertError) {
           console.error("❌ Supabase insert error:", insertError)
         }
@@ -248,8 +259,45 @@ export async function GET(req: NextRequest) {
       results.push({ error: "Failed to parse", id: msg.id })
     }
   }
+  
+  function chunkArray<T>(arr: T[], size: number): T[][] {
+    const result: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+      result.push(arr.slice(i, i + size))
+    }
+    return result
+  }
+  
+  async function processInChunks(
+    messages: any[],
+    chunkSize: number,
+    oauth2Client: any,
+    userId: string,
+    results: any[],
+    userEmail: string
+  ) {
+    const chunks = chunkArray(messages, chunkSize)
+  
+    for (const [i, chunk] of chunks.entries()) {
+      console.log(`⚙️ Processing chunk ${i + 1}/${chunks.length} with ${chunk.length} messages...`)
+      
+      const promises = chunk.map((msg) =>
+        processOneMessage(msg, oauth2Client, userId, results, userEmail)
+      )
+  
+      await Promise.allSettled(promises) // Runs this chunk in parallel
+    }
+  }
+  
+  
+  const resultsArray: any[] = []
+
+  console.log("📧 Parsing messages in chunks...")
+  console.time("⏱️ Parsing message duration")
+  await processInChunks(messages, 5, oauth2Client, userId, results, token.email!) //chunk size of 5
 
   console.log("After time end")
+  console.timeEnd("⏱️ Parsing message duration")
 
   console.timeEnd("/api/gmail/scan duration")
   
