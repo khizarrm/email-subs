@@ -34,25 +34,46 @@ export function Dashboard() {
     setLoading(true)
     setFeedback("")
     setNoRecords(false)
-
+  
+    // Step 1: Fetch from /api/gmail/scan
     console.log("Calling /api/gmail/scan")
     const res = await fetch("/api/gmail/scan", {
-        method: "GET",
-        credentials: "include",
+      method: "GET",
+      credentials: "include",
     })
+  
     console.log("Recieived response:", res)
     const data = await res.json()
-
-    console.log("Checking records...")
-    if (data.message === "No records found") {
+    console.log("Parsed data:", data)
+  
+    // Step 2: Check if any messages were returned
+    if (!data.messages || data.messages.length === 0) {
       setPurchases([])
       setNoRecords(true)
-    } else {
-      setPurchases(data.messages)
+      setLoading(false)
+      return
     }
-
+  
+    // Step 3: POST messages to Supabase Edge Function
+    console.log("Posting to Supabase Edge Function...")
+    const supabaseRes = await fetch("https://<your-project-id>.functions.supabase.co/gmail-parse", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messages: data.messages }),
+    })
+  
+    const supabaseData = await supabaseRes.json()
+    console.log("📦 Supabase parse response:", supabaseData)
+  
+    // Step 4: Refresh local display (or let DB listener take over)
+    // Optional: call /api/subscriptions or re-fetch `purchases`
+    await fetchAndUpdatePurchases()
+  
     setLoading(false)
   }
+  
 
   const handleSubscribe = async () => {
     setLoading(true)
