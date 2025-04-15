@@ -8,7 +8,6 @@ import { supabase } from "@/lib/supabaseClient"
 export async function GET(req: NextRequest) {
   console.time("/api/gmail/scan duration")
   console.log("🍪 Cookies:", req.headers.get("cookie"))
-
   
   console.log("Getting token...")
   const token = await getToken({ req })
@@ -63,7 +62,7 @@ export async function GET(req: NextRequest) {
     const gmail = google.gmail({ version: "v1", auth: oauth2Client })
     const res = await gmail.users.messages.list({
       userId: "me",
-      q: 'newer_than:60d subject:(receipt OR subscription OR payment) -from:me',
+      q: 'newer_than:60d (subject:receipt OR subject:invoice OR subject:"charged" OR subject:"billed") -from:me',
       maxResults: 100,
     })
     messages = res.data.messages || []
@@ -149,29 +148,24 @@ export async function GET(req: NextRequest) {
     
       const bodyText = extractBodyText(msgData.data.payload)
   
-      const currencyMatch = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
-      const isReceipt = subject.toLowerCase().includes("receipt")
-      if (!isReceipt && !currencyMatch) {
-        console.log("🛑 Skipping due to no currency match:", subject)
-        return
-      }
-  
+      const lowerSubject = subject.toLowerCase()
       const lowerBody = bodyText.toLowerCase()
-      if (lowerBody.includes("check") && lowerBody.includes("deposit")) {
-        console.log("⚠️ Skipping email likely about a check, not a charge:", subject)
+
+      const currencyMatch = bodyText.match(/(?:\$|USD|CAD|dollars?)\s*([0-9]+(?:\.[0-9]{2})?)/i)
+      const hasRelevantSubject = /(receipt|payment|invoice|charge|billed)/i.test(lowerSubject)
+      const isSuspicious = /(check|deposit|refunded|cancelled|confirmation|failed|pending)/i.test(lowerBody)
+
+      if ((!hasRelevantSubject && !currencyMatch) || isSuspicious) {
+        console.log("🛑 Skipping email:", subject)
         return
       }
-  
+
       console.log("📧 Parsing email with OpenAI...")
       const prompt = `
         You are a billing email parser. Your job is to extract billing details **only if the user is being charged for a purchase or subscription**.
         
         You MUST NOT extract data in the following cases:
-        - The email is about **incoming funds** (e.g. someone sent the user money, a check is in the mail, or a deposit is being made).
-        - It’s a **refund**, **reimbursement**, or **cancellation confirmation**.
         - It’s a **marketing email**, a **reminder**, or a **generic receipt** with no amount charged.
-        - It mentions a **pending**, **failed**, or **scheduled** payment, but no actual charge occurred yet.
-        - It has billing or payment keywords (like "receipt", "invoice", or "payment") but does **not show a currency and amount actually paid by the user**.
         
         Only extract the data if:
         - The user **paid a specific amount** (like $4.99, USD 6.99, or 8.99 CAD)
@@ -192,7 +186,7 @@ export async function GET(req: NextRequest) {
         From: "${from}"
         Body:
         """
-        ${bodyText.slice(0, 3000)}
+        ${bodyText.slice(0, 1500)}
         """
         ` 
   
@@ -294,7 +288,7 @@ export async function GET(req: NextRequest) {
 
   console.log("📧 Parsing messages in chunks...")
   console.time("⏱️ Parsing message duration")
-  await processInChunks(messages, 5, oauth2Client, userId, results, token.email!) //chunk size of 5
+  await processInChunks(messages, 5, oauth2Client, userId, results, token.email!) //chunk size of 6 is ideal(max) for openai 
 
   console.log("After time end")
   console.timeEnd("⏱️ Parsing message duration")
