@@ -4,6 +4,9 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import {ScanProgress} from "./scanprogress"
+import { supabase } from "@/lib/supabaseClient"
+import { getToken } from "next-auth/jwt"
 
 export function Dashboard() {
   const { data: session } = useSession()
@@ -20,6 +23,8 @@ export function Dashboard() {
   const [feedback, setFeedback] = useState("")
   const [noRecords, setNoRecords] = useState(false)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [logs, setLogs] = useState<string[]>([])
+
 
   const toggleExpand = (index: number) => {
     setExpanded(prev => {
@@ -30,50 +35,80 @@ export function Dashboard() {
   }
 
   const handleScan = async () => {
-    console.log("Handling scan...")
+    console.log("⚡ Starting scan...")
     setLoading(true)
-    setFeedback("")
-    setNoRecords(false)
+    setFeedback("Fetching emails...")
   
-    // Step 1: Fetch from /api/gmail/scan
-    console.log("Calling /api/gmail/scan")
-    const res = await fetch("/api/gmail/scan", {
-      method: "GET",
-      credentials: "include",
-    })
+    try {
+      // Step 1: Gmail scan
+      const res = await fetch("/api/gmail/scan", {
+        method: "GET",
+        credentials: "include",
+      })
   
-    console.log("Recieived response:", res)
-    const data = await res.json()
-    console.log("Parsed data:", data)
+      const data = await res.json()
+      if (!data.messages || data.messages.length === 0) {
+        setFeedback("🚫 No emails found to scan.")
+        setLoading(false)
+        return
+      }
   
-    // Step 2: Check if any messages were returned
-    if (!data.messages || data.messages.length === 0) {
-      setPurchases([])
-      setNoRecords(true)
+      setFeedback(`📤 Sending ${data.messages.length} messages to Supabase...`)
+      
+      const supabaseRes = await fetch("https://caoivbabwqjvwmwjxprt.supabase.co/functions/v1/gmail-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: data.messages }),
+      })
+  
+      if (!supabaseRes.ok) {
+        throw new Error(`Supabase returned ${supabaseRes.status}`)
+      }
+  
+      console.log("🎉 Sent to Supabase successfully")
+      setFeedback("✅ Scan sent to Supabase for processing.")
+      console.log("SUPABASE ID", session?.user?.supabase_id)
+      
+      // 🧠 Grab summary directly from subscriptions table
+      const { data: subs, error } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", session?.user?.supabase_id)
+        .gte("detected_on", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
+  
+      if (error || !subs) {
+        console.error("❌ Failed to fetch subscriptions:", error)
+        return
+      }
+  
+      const recurring = subs.filter((s) => s.billing_interval !== "one-time")
+      const oneTime = subs.filter((s) => s.billing_interval === "one-time")
+  
+      const recurringTotal = recurring.reduce((sum, s) => sum + parseFloat(s.amount), 0)
+      const oneTimeTotal = oneTime.reduce((sum, s) => sum + parseFloat(s.amount), 0)
+  
+      console.log(`
+  📬 Your Monthly Spending Summary
+  
+  🔁 Subscriptions:
+  ${recurring.length ? recurring.map((s) => `- ${s.service_name} – $${s.amount} ${s.currency} (${s.billing_interval})`).join("\n") : "None"}
+  
+  🛍️ One-Time Purchases:
+  ${oneTime.length ? oneTime.map((s) => `- ${s.service_name} – $${s.amount} ${s.currency}`).join("\n") : "None"}
+  
+  📊 Totals:
+  - Recurring: $${recurringTotal.toFixed(2)}
+  - One-time: $${oneTimeTotal.toFixed(2)}
+  - Overall: $${(recurringTotal + oneTimeTotal).toFixed(2)}
+      `.trim())
+  
+    } catch (err: any) {
+      console.error("❌ Scan error:", err)
+      setFeedback(`❌ Error: ${err.message || "Unknown error"}`)
+    } finally {
       setLoading(false)
-      return
     }
-  
-    // Step 3: POST messages to Supabase Edge Function
-    console.log("Posting to Supabase Edge Function...")
-    const supabaseRes = await fetch("https://<your-project-id>.functions.supabase.co/gmail-parse", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ messages: data.messages }),
-    })
-  
-    const supabaseData = await supabaseRes.json()
-    console.log("📦 Supabase parse response:", supabaseData)
-  
-    // Step 4: Refresh local display (or let DB listener take over)
-    // Optional: call /api/subscriptions or re-fetch `purchases`
-    await fetchAndUpdatePurchases()
-  
-    setLoading(false)
   }
-  
 
   const handleSubscribe = async () => {
     setLoading(true)
@@ -111,8 +146,20 @@ export function Dashboard() {
         {feedback && (
           <p className="text-green-600 font-medium animate-pulse">{feedback}</p>
         )}
-      </div>
 
+        {loading && (
+          <div className="p-4 bg-zinc-900 text-white rounded-lg mt-4 text-sm font-mono text-left max-h-60 overflow-y-auto">
+            <p className="mb-2 font-semibold">🔄 Live Scan Log:</p>
+            {logs.map((log, i) => (
+              <div key={i}>• {log}</div>
+            ))}
+          </div>
+        )}
+
+
+
+      </div>
+      {/* <ScanProgress /> */}
       {/* Added disclaimer message */}
       <div className="text-amber-600 text-sm italic border border-amber-300 bg-amber-50 p-3 rounded-md">
         Data here isn't 100% accurate. You might see some discrepancies. Currently working on that, will be fixed soon.
@@ -130,7 +177,7 @@ export function Dashboard() {
           <ul className="space-y-4 text-left">
             {purchases.map((p, i) => (
               <li key={i} className="border rounded-lg p-4 shadow-sm">
-                <p><strong>Vendor:</strong> {p.vendor_name || "Unknown"}</p>
+                <p><strong>Vendor:</strong> {p.service_name || "Unknown"}</p>
                 <p><strong>Price:</strong> {p.amount} {p.currency}</p>
 
                 <Button
